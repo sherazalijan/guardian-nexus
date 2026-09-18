@@ -32,3 +32,11 @@ class EventType(StrEnum):
     RISK = "risk"
     THREAT = "threat"
     ALERT = "alert"
+
+class EvidenceState(StrEnum):
+
+    INSUFFICIENT = "insufficient"
+
+    PARTIAL = "partial"
+
+    SUFFICIENT = "sufficient"
