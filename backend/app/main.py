@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.routes import router
 from app.core.config import get_settings
 from app.core.errors import GuardianError, guardian_exception_handler
 from app.core.logging import configure_logging, get_logger
@@ -45,6 +46,8 @@ app.add_exception_handler(
     GuardianError,
     guardian_exception_handler,
 )
+
+app.include_router(router)
 
 
 @app.exception_handler(Exception)
