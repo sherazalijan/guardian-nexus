@@ -1,3 +1,4 @@
+
 from functools import lru_cache
 
 from pydantic import Field
@@ -43,6 +44,36 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="TAVILY_API_KEY",
     )
+
+    llm_provider: str = Field(
+        default="mock",
+        validation_alias="LLM_PROVIDER",
+    )
+    threat_intelligence_provider: str = Field(
+        default="mock",
+        validation_alias="THREAT_INTELLIGENCE_PROVIDER",
+    )
+    nebius_base_url: str = Field(
+        default="https://api.tokenfactory.nebius.com/v1",
+        validation_alias="NEBIUS_BASE_URL",
+    )
+    nebius_model: str = Field(
+        default="",
+        validation_alias="NEBIUS_MODEL",
+    )
+    llm_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="LLM_TIMEOUT_SECONDS",
+    )
+
+    def model_post_init(self, __context: object) -> None:
+        """Normalize empty optional API keys to None."""
+        if self.assemblyai_api_key == "":
+            self.assemblyai_api_key = None
+        if self.nebius_api_key == "":
+            self.nebius_api_key = None
+        if self.tavily_api_key == "":
+            self.tavily_api_key = None
 
     @property
     def cors_origin_list(self) -> list[str]:
