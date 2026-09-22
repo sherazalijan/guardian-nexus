@@ -36,6 +36,10 @@ class Settings(BaseSettings):
         default=None,
         validation_alias="ASSEMBLYAI_API_KEY",
     )
+    assemblyai_provider: str = Field(
+        default="mock",
+        validation_alias="ASSEMBLYAI_PROVIDER",
+    )
     nebius_api_key: str | None = Field(
         default=None,
         validation_alias="NEBIUS_API_KEY",
