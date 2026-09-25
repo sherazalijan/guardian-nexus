@@ -2,7 +2,7 @@ from app.core.config import Settings
 
 
 def test_default_settings():
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.app_name == "Guardian Nexus Backend"
     assert settings.app_env == "development"
@@ -29,7 +29,7 @@ def test_settings_accept_environment_values(monkeypatch):
     monkeypatch.setenv("APP_ENV", "testing")
     monkeypatch.setenv("DEBUG", "false")
 
-    settings = Settings()
+    settings = Settings(_env_file=None)
 
     assert settings.app_name == "Test Guardian"
     assert settings.app_env == "testing"
