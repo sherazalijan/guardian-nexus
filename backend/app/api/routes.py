@@ -68,6 +68,12 @@ from app.services.intervention import InterventionPolicyService
 from app.services.protection import ProtectionService
 from app.services.session_intelligence import SessionIntelligenceService
 from app.services.voice_intelligence import VoiceIntelligenceService
+from app.services.intervention_engine import (
+    ProtectionHistoryService,
+    build_event as build_intervention_alert,
+    decide as decide_intervention,
+)
+from app.services.guardian_alerts import GuardianAlertManager, alert_to_ws_frame
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +121,8 @@ async def websocket_audio(websocket: WebSocket) -> None:
     session_intelligence_service: SessionIntelligenceService | None = None
     intervention_service: InterventionPolicyService | None = None
     voice_intelligence_service: VoiceIntelligenceService | None = None
+    protection_history_service: ProtectionHistoryService | None = None
+    guardian_alert_manager: GuardianAlertManager | None = None
 
     try:
         if not await _connect_provider(websocket, provider):
@@ -127,6 +135,8 @@ async def websocket_audio(websocket: WebSocket) -> None:
         session_intelligence_service = SessionIntelligenceService(session_id)
         intervention_service = InterventionPolicyService(session_id)
         voice_intelligence_service = VoiceIntelligenceService(session_id)
+        protection_history_service = ProtectionHistoryService(session_id)
+        guardian_alert_manager = GuardianAlertManager(session_id)
         guardian_graph = build_rule_based_guardian_graph()
 
         client_task = asyncio.create_task(
@@ -141,6 +151,8 @@ async def websocket_audio(websocket: WebSocket) -> None:
                 session_intelligence_service,
                 intervention_service,
                 voice_intelligence_service,
+                protection_history_service,
+                guardian_alert_manager,
                 guardian_graph,
             ),
             name="ws_audio_transcript_task",
@@ -263,6 +275,8 @@ async def _forward_transcripts(
     session_intelligence_service: SessionIntelligenceService,
     intervention_service: InterventionPolicyService,
     voice_intelligence_service: VoiceIntelligenceService,
+    protection_history_service: ProtectionHistoryService,
+    guardian_alert_manager: GuardianAlertManager,
     guardian_graph,
 ) -> None:
     """Read transcript events from the provider and forward them to the client.
@@ -300,6 +314,8 @@ async def _forward_transcripts(
                 session_intelligence_service,
                 intervention_service,
                 voice_intelligence_service,
+                protection_history_service,
+                guardian_alert_manager,
                 guardian_graph,
                 " ".join(transcript_segments),
             )
@@ -311,6 +327,8 @@ async def _run_protection_analysis(
     session_intelligence_service: SessionIntelligenceService,
     intervention_service: InterventionPolicyService,
     voice_intelligence_service: VoiceIntelligenceService,
+    protection_history_service: ProtectionHistoryService,
+    guardian_alert_manager: GuardianAlertManager,
     guardian_graph,
     transcript: str,
 ) -> None:
@@ -330,6 +348,8 @@ async def _run_protection_analysis(
         state = await guardian_graph.ainvoke({"transcript": transcript})
         risk_result = state.get("risk_result")
         threat_signals = state.get("threat_signals", [])
+        voice_signals = state.get("voice_signals", [])
+        voice_patterns = state.get("voice_patterns", [])
 
         if risk_result is None:
             return
@@ -397,6 +417,64 @@ async def _run_protection_analysis(
                 websocket,
                 "voice_intelligence_failed",
                 "Failed to analyze voice scam intelligence for this transcript.",
+            )
+
+        # Phase 5 -- Real-Time Intervention Engine. Deterministic, consumes
+        # only risk_result + voice signals/patterns already computed above;
+        # does not touch the existing Phase 3 InterventionPolicyService.
+        # Isolated try/except so a failure here cannot interrupt anything
+        # already sent (transcript/risk/protection/evidence/voice_intelligence).
+        intervention_event = None
+        try:
+            if risk_result is not None:
+                intervention_decision = decide_intervention(
+                    risk_score=risk_result.score,
+                    confidence=risk_result.confidence,
+                    voice_signals=voice_signals,
+                    voice_patterns=voice_patterns,
+                )
+                intervention_event = build_intervention_alert(
+                    intervention_decision, risk_result.score, voice_signals
+                )
+                if intervention_event is not None:
+                    protection_history_service.record(intervention_event)
+                    await websocket.send_json(
+                        {
+                            "type": "intervention_alert",
+                            "data": intervention_event.model_dump(mode="json"),
+                        }
+                    )
+        except Exception:
+            logger.exception(
+                "Intervention engine failed for session %s.",
+                protection_service.session_id,
+            )
+            await _safe_send_error(
+                websocket,
+                "intervention_engine_failed",
+                "Failed to evaluate real-time intervention for this transcript.",
+            )
+
+        # Phase 6 -- Live Guardian Alert System. Deterministic, consumes
+        # only the InterventionEvent already computed above (may be None);
+        # does not touch Risk Engine, Session/Voice Intelligence, or the
+        # Phase 5 Intervention Engine. Isolated try/except so a failure here
+        # cannot interrupt anything already sent.
+        try:
+            if intervention_event is not None:
+                alert_outcome = guardian_alert_manager.process(intervention_event)
+                if alert_outcome.event_type is not None:
+                    protection_history_service.record_alert(alert_outcome.alert)
+                    await websocket.send_json(alert_to_ws_frame(alert_outcome.alert))
+        except Exception:
+            logger.exception(
+                "Guardian alert manager failed for session %s.",
+                protection_service.session_id,
+            )
+            await _safe_send_error(
+                websocket,
+                "guardian_alert_failed",
+                "Failed to manage the guardian alert for this transcript.",
             )
     except Exception:
         logger.exception(
