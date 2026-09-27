@@ -25,6 +25,7 @@ from app.agents.scam_detection_agent import scam_detection_agent
 from app.agents.state import GuardianGraphState
 from app.agents.supervisor import supervisor
 from app.agents.threat_intelligence_agent import threat_intelligence_agent
+from app.agents.voice_intelligence_agent import voice_intelligence_agent
 from app.models.graph import NodeStatus
 from app.services.risk_engine import run_risk_engine
 
@@ -126,10 +127,12 @@ def build_rule_based_guardian_graph():
     graph = StateGraph(GuardianState)
 
     graph.add_node("scam_agent", scam_agent)
+    graph.add_node("voice_intelligence", voice_intelligence_agent)
     graph.add_node("risk_engine", rule_based_risk_engine_node)
 
     graph.add_edge(START, "scam_agent")
-    graph.add_edge("scam_agent", "risk_engine")
+    graph.add_edge("scam_agent", "voice_intelligence")
+    graph.add_edge("voice_intelligence", "risk_engine")
     graph.add_edge("risk_engine", END)
 
     return graph.compile()

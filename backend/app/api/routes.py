@@ -21,12 +21,23 @@ and a richer incident timeline. It adds one new frame type -- `evidence`
 `session_summary` payload. Nothing about the original `connected` /
 `transcript` / `error` protocol changed, and nothing about the Phase 1
 `risk` / `protection` / `timeline` / `session_summary` frames was
-removed or altered -- every original field is still sent exactly as
-before; Phase 2 only adds new frames and new keys alongside them.
+removed or altered.
+
+Phase 3 (real-time intervention) extends the gateway once more, also
+additively: it adds an `InterventionPolicyService` alongside the existing
+`ProtectionService`/`SessionIntelligenceService`, which turns each pass's
+new `ProtectionEvent`s into deterministic `intervention` frames (with
+cooldown/dedup/escalation -- see `app.services.intervention.policy`). It
+adds three new frame types -- `intervention`, `intervention_ack_result`,
+and a best-effort end-of-session `intervention_history` -- plus two
+additive keys merged into `session_summary`. It also adds a small client
+control protocol: a `{"type": "acknowledge_intervention", ...}` text
+frame from the client. Nothing from Phase 1/2 was removed or altered.
 
 No session management/persistence is added here beyond one in-memory
-`ProtectionService` + one in-memory `SessionIntelligenceService` per
-connection -- both are discarded when the socket closes.
+`ProtectionService` + one in-memory `SessionIntelligenceService` + one
+in-memory `InterventionPolicyService` per connection -- all three are
+discarded when the socket closes.
 
 Concurrency: audio ingestion (client -> provider) and transcript
 delivery (provider -> client) run as two independent asyncio tasks so
@@ -43,6 +54,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from uuid import uuid4
 
@@ -52,8 +64,10 @@ from app.agents.graph import build_rule_based_guardian_graph
 from app.core.errors import GuardianError
 from app.services.assemblyai.factory import create_assemblyai_provider
 from app.services.assemblyai.interface import AssemblyAIClient
+from app.services.intervention import InterventionPolicyService
 from app.services.protection import ProtectionService
 from app.services.session_intelligence import SessionIntelligenceService
+from app.services.voice_intelligence import VoiceIntelligenceService
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +80,10 @@ async def websocket_audio(websocket: WebSocket) -> None:
 
     Client -> server: binary WebSocket frames containing raw audio,
     forwarded verbatim to the configured AssemblyAI provider via
-    `send_audio()`. Text frames are accepted (so a stray text frame from
-    a client never tears down the connection) but are not part of any
-    defined control protocol in this phase, and are otherwise ignored.
+    `send_audio()`. Text frames are inspected for the Phase 3
+    `acknowledge_intervention` control message (see
+    `_handle_client_text_frame`); anything else is logged and ignored,
+    so a stray text frame never tears down the connection.
 
     Server -> client: a minimal JSON protocol --
         {"type": "connected"}
@@ -77,23 +92,29 @@ async def websocket_audio(websocket: WebSocket) -> None:
         {"type": "protection", "data": {...ProtectionEvent}}
         {"type": "timeline", "data": {...TimelineEvent}}
         {"type": "evidence", "data": {...EvidenceItem}}
-        {"type": "session_summary", "data": {...SessionSummary + Phase 2 extras}}
+        {"type": "intervention", "data": {...Intervention}}
+        {"type": "intervention_ack_result", "data": {...InterventionAckResult}}
+        {"type": "session_summary", "data": {...SessionSummary + Phase 2/3 extras}}
         {"type": "session_intelligence", "data": {...SessionIntelligence}}
+        {"type": "intervention_history", "data": {...InterventionHistory}}
         {"type": "error", "error": {"code", "message"}}
 
-    `risk` / `protection` / `timeline` / `evidence` frames are emitted,
-    in that order, each time a *final* transcript segment arrives and is
-    run through the offline rule-based analysis pipeline (see
-    `_run_protection_analysis`). Partial transcript segments only ever
-    produce a `transcript` frame, as before. `session_summary` and
-    `session_intelligence` are each sent once, best-effort, right before
-    the connection is torn down.
+    `risk` / `protection` / `timeline` / `intervention` / `evidence`
+    frames are emitted, in that order, each time a *final* transcript
+    segment arrives and is run through the offline rule-based analysis
+    pipeline (see `_run_protection_analysis`). Partial transcript
+    segments only ever produce a `transcript` frame, as before.
+    `session_summary`, `session_intelligence`, and `intervention_history`
+    are each sent once, best-effort, right before the connection is torn
+    down.
     """
     await websocket.accept()
 
     provider = create_assemblyai_provider()
     protection_service: ProtectionService | None = None
     session_intelligence_service: SessionIntelligenceService | None = None
+    intervention_service: InterventionPolicyService | None = None
+    voice_intelligence_service: VoiceIntelligenceService | None = None
 
     try:
         if not await _connect_provider(websocket, provider):
@@ -104,10 +125,12 @@ async def websocket_audio(websocket: WebSocket) -> None:
         session_id = provider.connection_state.session_id or str(uuid4())
         protection_service = ProtectionService(session_id)
         session_intelligence_service = SessionIntelligenceService(session_id)
+        intervention_service = InterventionPolicyService(session_id)
+        voice_intelligence_service = VoiceIntelligenceService(session_id)
         guardian_graph = build_rule_based_guardian_graph()
 
         client_task = asyncio.create_task(
-            _forward_client_audio(websocket, provider),
+            _forward_client_audio(websocket, provider, intervention_service),
             name="ws_audio_client_task",
         )
         transcript_task = asyncio.create_task(
@@ -116,6 +139,8 @@ async def websocket_audio(websocket: WebSocket) -> None:
                 provider,
                 protection_service,
                 session_intelligence_service,
+                intervention_service,
+                voice_intelligence_service,
                 guardian_graph,
             ),
             name="ws_audio_transcript_task",
@@ -131,7 +156,10 @@ async def websocket_audio(websocket: WebSocket) -> None:
         try:
             if protection_service is not None:
                 await _safe_send_session_summary(
-                    websocket, protection_service, session_intelligence_service
+                    websocket,
+                    protection_service,
+                    session_intelligence_service,
+                    intervention_service,
                 )
         finally:
             await _safe_disconnect(provider)
@@ -164,13 +192,18 @@ async def _connect_provider(websocket: WebSocket, provider: AssemblyAIClient) ->
         return False
 
 
-async def _forward_client_audio(websocket: WebSocket, provider: AssemblyAIClient) -> None:
+async def _forward_client_audio(
+    websocket: WebSocket,
+    provider: AssemblyAIClient,
+    intervention_service: InterventionPolicyService,
+) -> None:
     """Read messages from the client and forward binary audio to the provider.
 
     Raises `WebSocketDisconnect` once the client disconnects, which is
-    the normal way this task ends. Never raises on a text frame -- Phase
-    7.4 defines no client control protocol, so a stray text frame is
-    logged and skipped rather than treated as an error.
+    the normal way this task ends. Text frames are handed to
+    `_handle_client_text_frame` for the Phase 3 acknowledgement protocol;
+    anything unrecognized is logged and skipped rather than treated as an
+    error, exactly as before Phase 3.
     """
     while True:
         message = await websocket.receive()
@@ -185,7 +218,42 @@ async def _forward_client_audio(websocket: WebSocket, provider: AssemblyAIClient
 
         text = message.get("text")
         if text is not None:
-            logger.debug("Ignoring unexpected text frame on /ws/audio: %r", text)
+            await _handle_client_text_frame(websocket, intervention_service, text)
+
+
+async def _handle_client_text_frame(
+    websocket: WebSocket,
+    intervention_service: InterventionPolicyService,
+    text: str,
+) -> None:
+    """Phase 3 client control protocol: `acknowledge_intervention`.
+
+    Expects `{"type": "acknowledge_intervention", "intervention_id": "..."}`.
+    Any other or malformed text frame is logged and ignored -- this
+    endpoint still defines no broader client control protocol. Never
+    raises: a bad client message must not tear down the audio session.
+    """
+    try:
+        payload = json.loads(text)
+    except (ValueError, TypeError):
+        logger.debug("Ignoring non-JSON text frame on /ws/audio: %r", text)
+        return
+
+    if not isinstance(payload, dict) or payload.get("type") != "acknowledge_intervention":
+        logger.debug("Ignoring unrecognized text frame on /ws/audio: %r", text)
+        return
+
+    intervention_id = payload.get("intervention_id")
+    if not isinstance(intervention_id, str) or not intervention_id:
+        await _safe_send_error(
+            websocket, "invalid_acknowledgement", "intervention_id is required."
+        )
+        return
+
+    result = intervention_service.acknowledge(intervention_id)
+    await websocket.send_json(
+        {"type": "intervention_ack_result", "data": result.model_dump(mode="json")}
+    )
 
 
 async def _forward_transcripts(
@@ -193,6 +261,8 @@ async def _forward_transcripts(
     provider: AssemblyAIClient,
     protection_service: ProtectionService,
     session_intelligence_service: SessionIntelligenceService,
+    intervention_service: InterventionPolicyService,
+    voice_intelligence_service: VoiceIntelligenceService,
     guardian_graph,
 ) -> None:
     """Read transcript events from the provider and forward them to the client.
@@ -228,6 +298,8 @@ async def _forward_transcripts(
                 websocket,
                 protection_service,
                 session_intelligence_service,
+                intervention_service,
+                voice_intelligence_service,
                 guardian_graph,
                 " ".join(transcript_segments),
             )
@@ -237,18 +309,22 @@ async def _run_protection_analysis(
     websocket: WebSocket,
     protection_service: ProtectionService,
     session_intelligence_service: SessionIntelligenceService,
+    intervention_service: InterventionPolicyService,
+    voice_intelligence_service: VoiceIntelligenceService,
     guardian_graph,
     transcript: str,
 ) -> None:
     """Run the offline scam-detection/risk-engine pipeline against the
     accumulated final transcript and forward the resulting `risk`,
-    `protection`, `timeline`, and `evidence` frames to the client.
+    `protection`, `timeline`, `intervention`, and `evidence` frames to
+    the client.
 
     Never raises: an analysis failure (a malformed graph state, an
-    unexpected exception from a node, etc.) is reported to the client as
-    an `error` frame (code `analysis_failed`) and logged, but does not
-    tear down the WebSocket connection -- a single bad transcript
-    fragment must not end the session.
+    unexpected exception from a node, an intervention-layer failure,
+    etc.) is reported to the client as an `error` frame (code
+    `analysis_failed`) and logged, but does not tear down the WebSocket
+    connection -- a single bad transcript fragment must not end the
+    session.
     """
     try:
         state = await guardian_graph.ainvoke({"transcript": transcript})
@@ -276,6 +352,12 @@ async def _run_protection_analysis(
                 {"type": "timeline", "data": timeline_event.model_dump(mode="json")}
             )
 
+        # Phase 3: deterministic intervention decision, built from the
+        # ProtectionEvents just emitted above. No re-classification, no
+        # second risk score -- see app.services.intervention.policy.
+        for intervention in intervention_service.decide(analysis):
+            await websocket.send_json(intervention.to_ws_event())
+
         intelligence_update = session_intelligence_service.process(
             threat_signals=threat_signals,
             risk_result=risk_result,
@@ -285,6 +367,36 @@ async def _run_protection_analysis(
         for evidence_item in intelligence_update.evidence:
             await websocket.send_json(
                 {"type": "evidence", "data": evidence_item.model_dump(mode="json")}
+            )
+
+        # Phase 4 -- Voice Scam Intelligence. Isolated try/except: a
+        # failure here must never interrupt the transcript/risk/
+        # protection/evidence stream above, which has already been sent.
+        try:
+            vi_update = voice_intelligence_service.process(transcript)
+            if vi_update.new_signals or vi_update.new_patterns:
+                await websocket.send_json(
+                    {
+                        "type": "voice_intelligence",
+                        "data": {
+                            "signals": [
+                                s.model_dump(mode="json") for s in vi_update.new_signals
+                            ],
+                            "patterns": [
+                                p.model_dump(mode="json") for p in vi_update.new_patterns
+                            ],
+                        },
+                    }
+                )
+        except Exception:
+            logger.exception(
+                "Voice intelligence analysis failed for session %s.",
+                protection_service.session_id,
+            )
+            await _safe_send_error(
+                websocket,
+                "voice_intelligence_failed",
+                "Failed to analyze voice scam intelligence for this transcript.",
             )
     except Exception:
         logger.exception(
@@ -351,6 +463,7 @@ async def _safe_send_session_summary(
     websocket: WebSocket,
     protection_service: ProtectionService,
     session_intelligence_service: SessionIntelligenceService | None,
+    intervention_service: InterventionPolicyService | None,
 ) -> None:
     """Best-effort end-of-session summary. Never raises.
 
@@ -359,12 +472,12 @@ async def _safe_send_session_summary(
     exactly like `_safe_send_error`.
 
     The Phase 1 `session_summary` payload is sent unchanged, with a small
-    set of additive Phase 2 keys merged in (`evidence_count`,
-    `primary_category`, `risk_escalation_count`, `final_state`) so
+    set of additive Phase 2 keys (`evidence_count`, `primary_category`,
+    `risk_escalation_count`, `final_state`) and Phase 3 keys
+    (`intervention_count`, `critical_intervention_occurred`) merged in --
     existing clients that only read the original fields are unaffected.
-    A separate, new `session_intelligence` frame carries the full
-    evidence list, risk history, and incident timeline for clients that
-    want it.
+    Separate, new `session_intelligence` and `intervention_history` frames
+    carry the full detail for clients that want it.
     """
     try:
         protection_service.end_session()
@@ -382,6 +495,16 @@ async def _safe_send_session_summary(
                 }
             )
 
+        if intervention_service is not None:
+            intervention_service.resolve()
+            intervention_summary = intervention_service.summary()
+            summary_data.update(
+                {
+                    "intervention_count": intervention_summary["total_interventions"],
+                    "critical_intervention_occurred": intervention_summary["has_critical"],
+                }
+            )
+
         await websocket.send_json({"type": "session_summary", "data": summary_data})
 
         if session_intelligence_service is not None:
@@ -390,6 +513,15 @@ async def _safe_send_session_summary(
                 {
                     "type": "session_intelligence",
                     "data": snapshot.model_dump(mode="json"),
+                }
+            )
+
+        if intervention_service is not None:
+            history = intervention_service.history()
+            await websocket.send_json(
+                {
+                    "type": "intervention_history",
+                    "data": history.model_dump(mode="json"),
                 }
             )
     except Exception:

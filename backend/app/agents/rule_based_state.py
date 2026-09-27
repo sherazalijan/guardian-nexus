@@ -18,6 +18,7 @@ from typing import TypedDict
 
 from app.models.risk import RiskResult
 from app.models.threat import ThreatSignal
+from app.models.voice_intelligence import VoicePattern, VoiceSignal
 
 
 class GuardianState(TypedDict, total=False):
@@ -36,6 +37,11 @@ class GuardianState(TypedDict, total=False):
     # produce a real `RiskResult` via the existing, unmodified risk
     # engine (`app.services.risk_engine.run_risk_engine`).
     threat_signals: list[ThreatSignal]
+
+    # Phase 4 -- Voice Scam Intelligence output (additive; empty when the
+    # voice_intelligence_agent node hasn't run or found nothing).
+    voice_signals: list[VoiceSignal]
+    voice_patterns: list[VoicePattern]
 
     # Risk Engine output
     risk_level: str
