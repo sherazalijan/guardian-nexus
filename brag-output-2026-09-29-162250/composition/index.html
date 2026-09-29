@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920, height=1080">
+  <title>Guardian Nexus — Brag Video (Extended Theme)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 1920px; height: 1080px; overflow: hidden;
+      font-family: 'Inter', system-ui, sans-serif; background: #0b1120; color: #f8fafc;
+    }
+    
+    /* Global Background Effects */
+    .bg-grid {
+      position: absolute; inset: -50%; 
+      background-image: 
+        linear-gradient(rgba(99,102,241,0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(99,102,241,0.07) 1px, transparent 1px);
+      background-size: 80px 80px;
+      transform: perspective(1000px) rotateX(45deg) translateY(0);
+      animation: gridMove 20s linear infinite;
+      pointer-events: none; opacity: 0.8; z-index: 0;
+    }
+    @keyframes gridMove { to { transform: perspective(1000px) rotateX(45deg) translateY(80px); } }
+    
+    .bg-particles {
+      position: absolute; inset: 0; z-index: 0; opacity: 0.7;
+      font-family: 'JetBrains Mono', monospace; font-size: 14px; color: #a5b4fc;
+      pointer-events: none; overflow: hidden;
+    }
+    .particle {
+      position: absolute; opacity: 0; animation: fadeFloat 4s ease-in-out infinite;
+    }
+    @keyframes fadeFloat {
+      0%, 100% { opacity: 0; transform: translateY(10px); }
+      50% { opacity: 1; transform: translateY(-10px); }
+    }
+
+    .scene {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; opacity: 0; z-index: 10;
+    }
+
+    /* Scene 1 */
+    .scene-1 {
+      background: radial-gradient(ellipse 900px 600px at 50% 50%, rgba(99,102,241,0.2), transparent 70%);
+    }
+    .gauge-container { position: relative; width: 420px; height: 420px; }
+    .gauge-ring {
+      width: 420px; height: 420px; border-radius: 50%;
+      border: 6px solid rgba(99,102,241,0.2); position: relative;
+    }
+    .gauge-ring-dashed {
+      position: absolute; inset: -24px; border-radius: 50%;
+      border: 2px dashed rgba(99,102,241,0.4);
+      animation: spin-slow 12s linear infinite;
+    }
+    @keyframes spin-slow { to { transform: rotate(360deg); } }
+    .gauge-arc {
+      position: absolute; inset: -6px; border-radius: 50%;
+      border: 6px solid transparent;
+      border-top-color: #10b981; border-right-color: #10b981; border-left-color: #10b981;
+      transform: rotate(-45deg); filter: drop-shadow(0 0 12px rgba(16,185,129,0.6));
+    }
+    .gauge-center {
+      position: absolute; inset: 60px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; border-radius: 50%;
+      background: rgba(11,17,32,0.95); box-shadow: inset 0 0 40px rgba(99,102,241,0.1);
+    }
+    .gauge-value { font-size: 72px; font-weight: 800; color: #10b981; line-height: 1; }
+    .gauge-label {
+      font-size: 18px; font-weight: 600; color: #64748b;
+      text-transform: uppercase; letter-spacing: 3px; margin-top: 8px;
+    }
+    .radar-sweep {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 0deg, transparent 0deg, rgba(99,102,241,0.2) 30deg, transparent 60deg);
+      animation: sweep 3.2s linear infinite;
+    }
+    @keyframes sweep { to { transform: rotate(360deg); } }
+    
+    .status-text {
+      position: absolute; bottom: 260px; font-family: 'JetBrains Mono';
+      color: #818cf8; font-size: 14px; letter-spacing: 2px;
+      opacity: 0; text-transform: uppercase;
+    }
+    .start-btn {
+      position: absolute; bottom: 180px; left: 50%; transform: translateX(-50%);
+      padding: 16px 48px; background: #4f46e5; color: white;
+      font-size: 18px; font-weight: 700; border-radius: 12px; border: 1px solid #6366f1;
+      box-shadow: 0 0 30px rgba(79,70,229,0.4), inset 0 0 20px rgba(255,255,255,0.1); 
+      letter-spacing: 1px; opacity: 0;
+    }
+    .cursor-icon {
+      position: absolute; bottom: 168px; left: calc(50% + 60px);
+      width: 28px; height: 28px; opacity: 0;
+    }
+    .cursor-icon svg { width: 28px; height: 28px; fill: white; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6)); }
+
+    /* Scene 2 */
+    .scene-2 {
+      background: radial-gradient(ellipse 1400px 900px at 50% 40%, rgba(37,99,235,0.15), transparent 70%);
+      flex-direction: column; gap: 40px;
+    }
+    .analysis-layout { display: flex; align-items: stretch; gap: 60px; height: 500px; }
+    
+    /* Left panel: Gauge + Metrics */
+    .metrics-col { display: flex; flex-direction: column; gap: 30px; width: 340px; }
+    .gauge-mini { width: 340px; height: 340px; position: relative; }
+    .gauge-mini .gauge-ring { width: 340px; height: 340px; }
+    .gauge-mini .gauge-ring-dashed { inset: -20px; border-color: rgba(99,102,241,0.2); }
+    .gauge-mini .gauge-center { inset: 45px; }
+    .gauge-mini .gauge-value { font-size: 64px; }
+    
+    .stat-card {
+      background: rgba(30,41,59,0.7); border: 1px solid rgba(99,102,241,0.3);
+      border-radius: 12px; padding: 16px 24px; opacity: 0; transform: translateX(-20px);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .stat-label { font-size: 13px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    .stat-val { font-family: 'JetBrains Mono'; font-size: 18px; font-weight: 700; color: #f8fafc; }
+    
+    /* Right panel: Transcript */
+    .transcript-panel {
+      width: 780px; background: rgba(15,23,42,0.85);
+      border: 1px solid rgba(99,102,241,0.4); border-radius: 20px;
+      padding: 40px; backdrop-filter: blur(20px); position: relative; overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4), inset 0 0 60px rgba(99,102,241,0.1);
+    }
+    .scanner-line {
+      position: absolute; left: 0; right: 0; height: 2px; background: #6366f1;
+      box-shadow: 0 0 15px #6366f1, 0 0 30px #6366f1;
+      opacity: 0; top: 0; z-index: 5;
+    }
+    .transcript-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 30px; border-bottom: 1px solid rgba(99,102,241,0.2); padding-bottom: 15px;
+    }
+    .th-title { font-size: 15px; font-weight: 700; color: #818cf8; text-transform: uppercase; letter-spacing: 2px; }
+    .th-badge { background: rgba(16,185,129,0.15); color: #10b981; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid rgba(16,185,129,0.3); }
+    
+    .transcript-line { font-size: 22px; color: #cbd5e1; line-height: 1.8; opacity: 0; transform: translateY(10px); margin-bottom: 16px; position: relative; padding-left: 20px;}
+    .transcript-line::before { content: ''; position: absolute; left: 0; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: #475569; }
+    .transcript-line.danger { color: #ef4444; font-weight: 600; }
+    .transcript-line.danger::before { background: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    
+    .waveform-bar {
+      display: inline-block; width: 4px; background: #6366f1; border-radius: 2px;
+      margin: 0 3px; animation: wave 1.2s ease-in-out infinite;
+    }
+    @keyframes wave { 0%, 100% { height: 12px; } 50% { height: 36px; } }
+    .waveform-container { display: flex; align-items: center; margin-top: 30px; height: 40px; opacity: 0; }
+    .analysis-label {
+      font-size: 32px; font-weight: 800; color: #f8fafc; letter-spacing: 3px;
+      text-transform: uppercase; opacity: 0; text-shadow: 0 0 20px rgba(255,255,255,0.2);
+    }
+
+    /* Scene 3 */
+    .scene-3 { flex-direction: column; }
+    .red-vignette {
+      position: absolute; inset: 0; background: radial-gradient(circle, transparent 30%, rgba(185,28,28,0.4) 100%);
+      opacity: 0; pointer-events: none; z-index: 1; animation: pulse-vig 2s infinite;
+    }
+    @keyframes pulse-vig { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+    
+    .alert-banner {
+      width: 100%; padding: 32px 0;
+      background: repeating-linear-gradient(-45deg, #dc2626, #dc2626 24px, #991b1b 24px, #991b1b 48px);
+      background-size: 68px 68px; animation: stripes 1s linear infinite;
+      display: flex; align-items: center; justify-content: center; gap: 30px;
+      box-shadow: 0 0 80px rgba(220,38,38,0.5), inset 0 0 20px rgba(0,0,0,0.5);
+      opacity: 0; transform: translateY(-40px); border-bottom: 4px solid #f87171; border-top: 4px solid #f87171; z-index: 2;
+    }
+    @keyframes stripes { to { background-position: 68px 0; } }
+    .alert-icon { font-size: 42px; animation: pulse 0.6s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(255,255,255,0.5)); }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.8; transform: scale(1.15); } }
+    .alert-text {
+      font-size: 40px; font-weight: 900; color: white; letter-spacing: 6px;
+      text-transform: uppercase; text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    
+    .alert-gauge { margin-top: 80px; text-align: center; opacity: 0; position: relative; }
+    .alert-gauge .gauge-value { font-size: 140px; font-weight: 900; color: #ef4444; filter: drop-shadow(0 0 50px rgba(239,68,68,0.6)); line-height: 1; }
+    .alert-gauge .gauge-label { font-size: 28px; font-weight: 800; color: #ef4444; letter-spacing: 8px; margin-top: 10px; }
+    
+    .lockdown-bar {
+      width: 400px; height: 8px; background: rgba(239,68,68,0.2); border-radius: 4px; margin: 30px auto 0; overflow: hidden; opacity: 0;
+    }
+    .lockdown-fill { width: 0%; height: 100%; background: #ef4444; box-shadow: 0 0 15px #ef4444; }
+    
+    .alert-sub { font-size: 20px; font-weight: 600; color: #fca5a5; margin-top: 24px; letter-spacing: 3px; opacity: 0; text-transform: uppercase; }
+
+    /* Scene 4 */
+    .scene-4 {
+      background: radial-gradient(ellipse 1200px 800px at 50% 50%, rgba(99,102,241,0.15), transparent 60%),
+                  linear-gradient(180deg, #1e1b4b 0%, #0b1120 100%);
+      flex-direction: column; gap: 24px;
+    }
+    .outro-shield {
+      width: 100px; height: 120px; opacity: 0; transform: scale(0.5);
+      margin-bottom: 20px;
+    }
+    .outro-shield svg { width: 100%; height: 100%; fill: none; stroke: #818cf8; stroke-width: 2; filter: drop-shadow(0 0 20px rgba(129,140,248,0.6)); stroke-linejoin: round; }
+    .outro-title { font-size: 96px; font-weight: 900; letter-spacing: -3px; opacity: 0; transform: scale(0.9); text-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+    .outro-subtitle {
+      font-size: 32px; font-weight: 600; color: #cbd5e1; letter-spacing: 6px;
+      text-transform: uppercase; opacity: 0;
+    }
+    .outro-powered { font-size: 18px; font-weight: 500; color: #94a3b8; margin-top: 50px; letter-spacing: 3px; opacity: 0; text-transform: uppercase; }
+    .outro-line { width: 160px; height: 3px; background: linear-gradient(90deg, transparent, #818cf8, transparent); opacity: 0; box-shadow: 0 0 15px #818cf8; }
+  </style>
+</head>
+<body data-duration="20" data-fps="30" data-width="1920" data-height="1080" data-composition-id="guardian-nexus-brag">
+  
+  <div class="bg-grid"></div>
+  <div class="bg-particles" id="particles"></div>
+
+  <!-- Audio -->
+  <audio id="bg-music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.32" src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"></audio>
+  <audio id="sfx-click" data-start="2.8" data-duration="0.06" data-track-index="11" data-volume="0.70" src="assets/sfx/ui/mouseclick1.ogg"></audio>
+  <audio id="sfx-reveal" data-start="5.0" data-duration="0.19" data-track-index="12" data-volume="0.65" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+  <audio id="sfx-alert" data-start="10.2" data-duration="1.5" data-track-index="13" data-volume="0.80" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+  <audio id="sfx-logo" data-start="15.5" data-duration="0.30" data-track-index="14" data-volume="0.70" src="assets/sfx/impact/impactBell_heavy_004.ogg"></audio>
+
+  <!-- SCENE 1 -->
+  <div class="scene scene-1 clip" id="scene1" data-enter="0" data-exit="4">
+    <div class="status-text" id="statusText">Establishing Secure Link...</div>
+    <div class="gauge-container">
+      <div class="gauge-ring-dashed"></div>
+      <div class="gauge-ring"><div class="radar-sweep"></div><div class="gauge-arc" id="arc1"></div></div>
+      <div class="gauge-center">
+        <div class="gauge-value" id="val1">0</div>
+        <div class="gauge-label" id="lbl1">Clear</div>
+      </div>
+    </div>
+    <button class="start-btn" id="startBtn">INITIATE DEFENSE</button>
+    <div class="cursor-icon" id="cursor"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-4 6z"/></svg></div>
+  </div>
+
+  <!-- SCENE 2 -->
+  <div class="scene scene-2 clip" id="scene2" data-enter="3.6" data-exit="10">
+    <div class="analysis-label" id="analysisLabel">Active Threat Monitoring</div>
+    <div class="analysis-layout">
+      <div class="metrics-col">
+        <div class="gauge-mini">
+          <div class="gauge-ring-dashed"></div>
+          <div class="gauge-ring"><div class="radar-sweep"></div><div class="gauge-arc" id="arc2"></div></div>
+          <div class="gauge-center">
+            <div class="gauge-value" id="val2">0</div>
+            <div class="gauge-label" id="lbl2">Clear</div>
+          </div>
+        </div>
+        <div class="stat-card" id="stat1">
+          <span class="stat-label">Model Conf.</span>
+          <span class="stat-val" id="stat1val">0%</span>
+        </div>
+        <div class="stat-card" id="stat2">
+          <span class="stat-label">Vector</span>
+          <span class="stat-val" id="stat2val" style="color:#94a3b8">Unknown</span>
+        </div>
+      </div>
+      
+      <div class="transcript-panel">
+        <div class="scanner-line" id="scannerLine"></div>
+        <div class="transcript-header">
+          <div class="th-title">Live Audio Stream</div>
+          <div class="th-badge" id="thBadge">ANALYZING</div>
+        </div>
+        <div class="transcript-line" id="line1">"Hello, I am calling from your bank..."</div>
+        <div class="transcript-line" id="line2">"We have detected suspicious activity on your account."</div>
+        <div class="transcript-line danger" id="line3">"I need your card number to verify your identity."</div>
+        <div class="waveform-container" id="waveform">
+          <div class="waveform-bar" style="height:12px;animation-delay:0.0s"></div>
+          <div class="waveform-bar" style="height:20px;animation-delay:0.1s"></div>
+          <div class="waveform-bar" style="height:28px;animation-delay:0.2s"></div>
+          <div class="waveform-bar" style="height:16px;animation-delay:0.3s"></div>
+          <div class="waveform-bar" style="height:24px;animation-delay:0.4s"></div>
+          <div class="waveform-bar" style="height:10px;animation-delay:0.5s"></div>
+          <div class="waveform-bar" style="height:32px;animation-delay:0.6s"></div>
+          <div class="waveform-bar" style="height:18px;animation-delay:0.7s"></div>
+          <div class="waveform-bar" style="height:26px;animation-delay:0.8s"></div>
+          <div class="waveform-bar" style="height:14px;animation-delay:0.9s"></div>
+          <div class="waveform-bar" style="height:22px;animation-delay:1.0s"></div>
+          <div class="waveform-bar" style="height:30px;animation-delay:1.1s"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCENE 3 -->
+  <div class="scene scene-3 clip" id="scene3" data-enter="9.5" data-exit="15">
+    <div class="red-vignette" id="redVig"></div>
+    <div class="alert-banner" id="alertBanner">
+      <span class="alert-icon">⚠️</span>
+      <span class="alert-text">SCAM ATTEMPT DETECTED</span>
+      <span class="alert-icon">⚠️</span>
+    </div>
+    <div class="alert-gauge" id="alertGauge">
+      <div class="gauge-value">85</div>
+      <div class="gauge-label">CRITICAL THREAT</div>
+      <div class="lockdown-bar" id="lockdownBar"><div class="lockdown-fill" id="lockdownFill"></div></div>
+    </div>
+    <div class="alert-sub" id="alertSub">System Lockdown Initiated — Connection Terminated</div>
+  </div>
+
+  <!-- SCENE 4 -->
+  <div class="scene scene-4 clip" id="scene4" data-enter="14.5" data-exit="20">
+    <div class="outro-shield" id="outroShield">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+    </div>
+    <div class="outro-line" id="outroLine"></div>
+    <div class="outro-title" id="outroTitle">Guardian Nexus</div>
+    <div class="outro-subtitle" id="outroSub">Enterprise Voice Defense</div>
+    <div class="outro-powered" id="outroPowered">Powered by AssemblyAI</div>
+  </div>
+
+  <script>
+    // Generate background particles deterministically
+    const pContainer = document.getElementById('particles');
+    const hexChars = '0123456789ABCDEF';
+    
+    // Simple seeded pseudo-random
+    let seed = 12345;
+    function random() {
+      const x = Math.sin(seed++) * 10000;
+      return x - Math.floor(x);
+    }
+    
+    for (let i = 0; i < 40; i++) {
+      const p = document.createElement('div');
+      p.className = 'particle';
+      p.style.left = random() * 100 + '%';
+      p.style.top = random() * 100 + '%';
+      p.style.animationDelay = (random() * 4) + 's';
+      
+      p.innerText = random() > 0.5 
+        ? '0x' + Array(4).fill(0).map(()=>hexChars[Math.floor(random()*16)]).join('')
+        : '192.168.' + Math.floor(random()*255) + '.' + Math.floor(random()*255);
+      pContainer.appendChild(p);
+    }
+
+    // Build GSAP master timeline
+    const tl = gsap.timeline({ paused: true });
+
+    // ── SCENE 1: 0–4s ──
+    tl.to('#scene1', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 0)
+      .to('#statusText', { opacity: 1, duration: 0.3 }, 0.2)
+      .to('#startBtn', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 0.8)
+      .to('#cursor', { opacity: 1, duration: 0.3, ease: 'power2.out' }, 2.2)
+      .to('#startBtn', { scale: 0.95, boxShadow: '0 0 10px rgba(79,70,229,0.8), inset 0 0 10px rgba(255,255,255,0.2)', duration: 0.15 }, 2.8)
+      .to('#startBtn', { scale: 1, boxShadow: '0 0 30px rgba(79,70,229,0.4), inset 0 0 20px rgba(255,255,255,0.1)', duration: 0.15 }, 2.95)
+      .to('#statusText', { opacity: 0, duration: 0.2 }, 3.0)
+      .to('#scene1', { opacity: 0, duration: 0.4, ease: 'power2.in' }, 3.6);
+
+    // ── SCENE 2: 4–10s ──
+    tl.to('#scene2', { opacity: 1, duration: 0.5, ease: 'power2.out' }, 3.8)
+      .to('#analysisLabel', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 4.3)
+      .to('#stat1', { opacity: 1, x: 0, duration: 0.4, ease: 'back.out(1.2)' }, 4.5)
+      .to('#stat2', { opacity: 1, x: 0, duration: 0.4, ease: 'back.out(1.2)' }, 4.7)
+      .to('#waveform', { opacity: 1, duration: 0.4 }, 4.8)
+      .to('#line1', { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 5.0)
+      .to('#line2', { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 6.2)
+      .to('#line3', { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' }, 7.4)
+      .to('#scannerLine', { opacity: 0.8, duration: 0.2 }, 4.5)
+      .to('#scannerLine', { y: 400, duration: 4.5, ease: 'linear' }, 4.7)
+      .to('#scannerLine', { opacity: 0, duration: 0.2 }, 9.2);
+
+    // Gauge counter (scene 2): 0 → 35 → 85 & stats update
+    const gaugeProxy = { value: 0 };
+    tl.to(gaugeProxy, {
+      value: 35, duration: 2.5, ease: 'power1.inOut',
+      onUpdate: function() {
+        const v = Math.round(gaugeProxy.value);
+        const el = document.getElementById('val2');
+        const arc = document.getElementById('arc2');
+        const lbl = document.getElementById('lbl2');
+        const conf = document.getElementById('stat1val');
+        el.textContent = v;
+        conf.textContent = Math.round(v * 1.5) + '%';
+        if (v < 25) {
+          el.style.color = '#10b981';
+          arc.style.borderTopColor = arc.style.borderRightColor = arc.style.borderLeftColor = '#10b981';
+          arc.style.filter = 'drop-shadow(0 0 12px rgba(16,185,129,0.6))';
+          lbl.textContent = 'Clear';
+          document.getElementById('thBadge').style.color = '#10b981';
+        } else if (v < 60) {
+          el.style.color = '#f59e0b';
+          arc.style.borderTopColor = arc.style.borderRightColor = arc.style.borderLeftColor = '#f59e0b';
+          arc.style.filter = 'drop-shadow(0 0 12px rgba(245,158,11,0.6))';
+          lbl.textContent = 'Elevated';
+          document.getElementById('stat2val').textContent = 'Suspected';
+          document.getElementById('stat2val').style.color = '#f59e0b';
+          document.getElementById('thBadge').style.color = '#f59e0b';
+          document.getElementById('thBadge').style.borderColor = 'rgba(245,158,11,0.3)';
+          document.getElementById('thBadge').style.background = 'rgba(245,158,11,0.15)';
+          document.getElementById('thBadge').textContent = 'WARNING';
+        }
+      }
+    }, 4.5);
+    tl.to(gaugeProxy, {
+      value: 85, duration: 1.8, ease: 'power2.in',
+      onUpdate: function() {
+        const v = Math.round(gaugeProxy.value);
+        const el = document.getElementById('val2');
+        const arc = document.getElementById('arc2');
+        const lbl = document.getElementById('lbl2');
+        const conf = document.getElementById('stat1val');
+        el.textContent = v;
+        conf.textContent = v > 80 ? '99%' : Math.round(v * 1.1) + '%';
+        if (v >= 60) {
+          el.style.color = '#ef4444';
+          arc.style.borderTopColor = arc.style.borderRightColor = arc.style.borderLeftColor = '#ef4444';
+          arc.style.filter = 'drop-shadow(0 0 20px rgba(239,68,68,0.8))';
+          lbl.textContent = 'Critical';
+          document.getElementById('stat2val').textContent = 'Social Eng.';
+          document.getElementById('stat2val').style.color = '#ef4444';
+          document.getElementById('thBadge').style.color = '#ef4444';
+          document.getElementById('thBadge').style.borderColor = 'rgba(239,68,68,0.3)';
+          document.getElementById('thBadge').style.background = 'rgba(239,68,68,0.15)';
+          document.getElementById('thBadge').textContent = 'BREACH';
+        }
+      }
+    }, 7.5);
+
+    tl.to('#scene2', { opacity: 0, duration: 0.5, ease: 'power2.in' }, 9.5);
+
+    // ── SCENE 3: 10–15s ──
+    tl.to('#scene3', { opacity: 1, duration: 0.2, ease: 'power2.out' }, 9.8)
+      .to('#redVig', { opacity: 1, duration: 0.2 }, 9.8)
+      .to('#alertBanner', { opacity: 1, y: 0, duration: 0.2, ease: 'back.out(1.5)' }, 10.2)
+      .to('#alertGauge', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 10.6)
+      .to('#lockdownBar', { opacity: 1, duration: 0.2 }, 10.8)
+      .to('#lockdownFill', { width: '100%', duration: 3.5, ease: 'power1.inOut' }, 11.0)
+      .to('#alertSub', { opacity: 1, duration: 0.3, ease: 'power2.out' }, 11.5)
+      .to('#scene3', { opacity: 0, duration: 0.5, ease: 'power2.in' }, 14.5);
+
+    // ── SCENE 4: 15–20s ──
+    tl.to('#scene4', { opacity: 1, duration: 0.6, ease: 'power2.out' }, 14.8)
+      .to('#outroShield', { opacity: 1, scale: 1, duration: 0.6, ease: 'back.out(1.5)' }, 15.1)
+      .to('#outroLine', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 15.3)
+      .to('#outroTitle', { opacity: 1, scale: 1, duration: 0.5, ease: 'back.out(1.2)' }, 15.5)
+      .to('#outroSub', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 16.2)
+      .to('#outroPowered', { opacity: 1, duration: 0.4, ease: 'power2.out' }, 17.0)
+      .to('#scene4', { opacity: 0, duration: 0.5, ease: 'power2.out' }, 19.5);
+
+    // Register timeline for Hyperframes
+    window.__timelines = window.__timelines || {};
+    window.__timelines['guardian-nexus-brag'] = tl;
+  </script>
+</body>
+</html>
