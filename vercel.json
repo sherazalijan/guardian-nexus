@@ -3,7 +3,7 @@
   "services": {
     "frontend": {
       "root": "frontend",
-      "framework": "vite",
+      "framework": "nextjs",
       "bindings": [
         {
           "type": "service",
