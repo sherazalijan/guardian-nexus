@@ -56,6 +56,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -74,6 +75,9 @@ from app.services.intervention_engine import (
     decide as decide_intervention,
 )
 from app.services.guardian_alerts import GuardianAlertManager, alert_to_ws_frame
+from app.models.guardian_alert import AlertEvent
+from app.services.persistence.hooks import PersistenceHooks
+from app.services.risk_engine import run_risk_engine
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +127,7 @@ async def websocket_audio(websocket: WebSocket) -> None:
     voice_intelligence_service: VoiceIntelligenceService | None = None
     protection_history_service: ProtectionHistoryService | None = None
     guardian_alert_manager: GuardianAlertManager | None = None
+    persistence_hooks: PersistenceHooks | None = None
 
     try:
         if not await _connect_provider(websocket, provider):
@@ -138,6 +143,10 @@ async def websocket_audio(websocket: WebSocket) -> None:
         protection_history_service = ProtectionHistoryService(session_id)
         guardian_alert_manager = GuardianAlertManager(session_id)
         guardian_graph = build_rule_based_guardian_graph()
+        # Phase 8: one PersistenceHooks (and DB session) per connection.
+        # Never raises; a DB outage only disables persistence/Threat Memory.
+        persistence_hooks = PersistenceHooks(session_id)
+        await persistence_hooks.start()
 
         client_task = asyncio.create_task(
             _forward_client_audio(websocket, provider, intervention_service),
@@ -154,6 +163,7 @@ async def websocket_audio(websocket: WebSocket) -> None:
                 protection_history_service,
                 guardian_alert_manager,
                 guardian_graph,
+                persistence_hooks,
             ),
             name="ws_audio_transcript_task",
         )
@@ -172,8 +182,11 @@ async def websocket_audio(websocket: WebSocket) -> None:
                     protection_service,
                     session_intelligence_service,
                     intervention_service,
+                    persistence_hooks,
                 )
         finally:
+            if persistence_hooks is not None:
+                await persistence_hooks.close()
             await _safe_disconnect(provider)
             await _safe_close(websocket)
 
@@ -278,6 +291,7 @@ async def _forward_transcripts(
     protection_history_service: ProtectionHistoryService,
     guardian_alert_manager: GuardianAlertManager,
     guardian_graph,
+    persistence_hooks: PersistenceHooks,
 ) -> None:
     """Read transcript events from the provider and forward them to the client.
 
@@ -292,6 +306,7 @@ async def _forward_transcripts(
     finishing first.
     """
     transcript_segments: list[str] = []
+    chunk_sequence = 0
 
     while True:
         chunk = await provider.receive_event()
@@ -306,6 +321,14 @@ async def _forward_transcripts(
             }
         )
 
+        await persistence_hooks.on_transcript_segment(
+            sequence=chunk_sequence,
+            text=chunk.text,
+            is_final=chunk.is_final,
+            confidence=chunk.confidence,
+        )
+        chunk_sequence += 1
+
         if chunk.is_final and chunk.text.strip():
             transcript_segments.append(chunk.text.strip())
             await _run_protection_analysis(
@@ -318,6 +341,7 @@ async def _forward_transcripts(
                 guardian_alert_manager,
                 guardian_graph,
                 " ".join(transcript_segments),
+                persistence_hooks,
             )
 
 
@@ -331,6 +355,7 @@ async def _run_protection_analysis(
     guardian_alert_manager: GuardianAlertManager,
     guardian_graph,
     transcript: str,
+    persistence_hooks: PersistenceHooks,
 ) -> None:
     """Run the offline scam-detection/risk-engine pipeline against the
     accumulated final transcript and forward the resulting `risk`,
@@ -354,9 +379,28 @@ async def _run_protection_analysis(
         if risk_result is None:
             return
 
+        # Phase 8: threats matched earlier in this session (see
+        # check_threat_memory below) are fed back into the EXISTING Risk
+        # Engine as one extra real ThreatSignal each -- no second engine,
+        # no separate score. Skipped entirely when there are no matches.
+        known_threat_signals = persistence_hooks.build_known_threat_signals()
+        if known_threat_signals:
+            try:
+                risk_result = run_risk_engine([*threat_signals, *known_threat_signals])
+            except Exception:
+                logger.exception(
+                    "Known-threat risk enrichment failed for session %s; "
+                    "using the un-enriched risk result.",
+                    protection_service.session_id,
+                )
+
         await websocket.send_json(
             {"type": "risk", "data": risk_result.model_dump(mode="json")}
         )
+        await persistence_hooks.on_risk_result(
+            risk_result, timestamp=datetime.now(timezone.utc)
+        )
+        await persistence_hooks.on_threat_signals(threat_signals)
 
         analysis = protection_service.process(
             threat_signals=threat_signals, risk_result=risk_result
@@ -366,17 +410,20 @@ async def _run_protection_analysis(
             await websocket.send_json(
                 {"type": "protection", "data": event.model_dump(mode="json")}
             )
+            await persistence_hooks.on_protection_event(event)
 
         for timeline_event in analysis.timeline_events:
             await websocket.send_json(
                 {"type": "timeline", "data": timeline_event.model_dump(mode="json")}
             )
+            await persistence_hooks.on_timeline_event(timeline_event)
 
         # Phase 3: deterministic intervention decision, built from the
         # ProtectionEvents just emitted above. No re-classification, no
         # second risk score -- see app.services.intervention.policy.
         for intervention in intervention_service.decide(analysis):
             await websocket.send_json(intervention.to_ws_event())
+            await persistence_hooks.on_intervention(intervention)
 
         intelligence_update = session_intelligence_service.process(
             threat_signals=threat_signals,
@@ -388,12 +435,17 @@ async def _run_protection_analysis(
             await websocket.send_json(
                 {"type": "evidence", "data": evidence_item.model_dump(mode="json")}
             )
+            await persistence_hooks.on_evidence(evidence_item)
 
         # Phase 4 -- Voice Scam Intelligence. Isolated try/except: a
         # failure here must never interrupt the transcript/risk/
         # protection/evidence stream above, which has already been sent.
         try:
             vi_update = voice_intelligence_service.process(transcript)
+            for vi_signal in vi_update.new_signals:
+                await persistence_hooks.on_voice_signal(vi_signal)
+            for vi_pattern in vi_update.new_patterns:
+                await persistence_hooks.on_voice_pattern(vi_pattern)
             if vi_update.new_signals or vi_update.new_patterns:
                 await websocket.send_json(
                     {
@@ -438,6 +490,7 @@ async def _run_protection_analysis(
                 )
                 if intervention_event is not None:
                     protection_history_service.record(intervention_event)
+                    await persistence_hooks.on_intervention_event(intervention_event)
                     await websocket.send_json(
                         {
                             "type": "intervention_alert",
@@ -465,6 +518,13 @@ async def _run_protection_analysis(
                 alert_outcome = guardian_alert_manager.process(intervention_event)
                 if alert_outcome.event_type is not None:
                     protection_history_service.record_alert(alert_outcome.alert)
+                    await persistence_hooks.on_guardian_alert(alert_outcome.alert)
+                    await persistence_hooks.on_guardian_alert_event(
+                        AlertEvent(
+                            alert_id=alert_outcome.alert.id,
+                            event_type=alert_outcome.event_type,
+                        )
+                    )
                     await websocket.send_json(alert_to_ws_frame(alert_outcome.alert))
         except Exception:
             logger.exception(
@@ -475,6 +535,32 @@ async def _run_protection_analysis(
                 websocket,
                 "guardian_alert_failed",
                 "Failed to manage the guardian alert for this transcript.",
+            )
+
+        # Phase 8 -- commit this pass's staged writes, then run Threat
+        # Memory once per final analysis pass (never per audio chunk).
+        # Informational only: the `known_threat_match` frame does not
+        # itself change protection decisions; the match influences the
+        # NEXT pass's RiskResult via build_known_threat_signals() above.
+        try:
+            await persistence_hooks.flush_pass()
+            for match in await persistence_hooks.check_threat_memory():
+                await websocket.send_json(
+                    {
+                        "type": "known_threat_match",
+                        "data": {
+                            "threat_id": match["threat_id"],
+                            "match_score": match["match_score"],
+                            "category": match["category"],
+                            "matched_indicators": match["matched_indicators"],
+                            "occurrence_count": match["occurrence_count"],
+                        },
+                    }
+                )
+        except Exception:
+            logger.exception(
+                "Threat memory step failed for session %s.",
+                protection_service.session_id,
             )
     except Exception:
         logger.exception(
@@ -542,6 +628,7 @@ async def _safe_send_session_summary(
     protection_service: ProtectionService,
     session_intelligence_service: SessionIntelligenceService | None,
     intervention_service: InterventionPolicyService | None,
+    persistence_hooks: PersistenceHooks | None = None,
 ) -> None:
     """Best-effort end-of-session summary. Never raises.
 
@@ -583,10 +670,26 @@ async def _safe_send_session_summary(
                 }
             )
 
+        # Phase 8: persist BEFORE any websocket send -- a client that has
+        # already disconnected makes send_json raise, and must not cost
+        # us the session summary / incident timeline / threat promotion.
+        snapshot = (
+            session_intelligence_service.snapshot()
+            if session_intelligence_service is not None
+            else None
+        )
+        if persistence_hooks is not None:
+            extra = {k: v for k, v in summary_data.items() if k not in summary.model_dump(mode="json")}
+            await persistence_hooks.on_session_summary(summary, extra=extra)
+            if snapshot is not None:
+                for incident_event in snapshot.timeline:
+                    await persistence_hooks.on_incident_event(incident_event)
+            await persistence_hooks.flush_pass()
+            await persistence_hooks.maybe_promote_threat()
+
         await websocket.send_json({"type": "session_summary", "data": summary_data})
 
-        if session_intelligence_service is not None:
-            snapshot = session_intelligence_service.snapshot()
+        if snapshot is not None:
             await websocket.send_json(
                 {
                     "type": "session_intelligence",
@@ -623,3 +726,4 @@ async def _safe_close(websocket: WebSocket, code: int = 1000) -> None:
         await websocket.close(code=code)
     except Exception:
         logger.debug("WebSocket already closed.", exc_info=True)
+

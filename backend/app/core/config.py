@@ -70,6 +70,16 @@ class Settings(BaseSettings):
         validation_alias="LLM_TIMEOUT_SECONDS",
     )
 
+    # Phase 8 — persistence. Async SQLAlchemy URL for the Threat Memory /
+    # session-persistence layer (app.core.database, app.db.*). Defaults to
+    # local Postgres via asyncpg; tests override this with a sqlite+aiosqlite
+    # URL (see backend/tests/conftest_phase8.py) rather than requiring
+    # a real database to be running.
+    database_url: str = Field(
+        default="postgresql+asyncpg://guardian:guardian@localhost:5432/guardian_nexus",
+        validation_alias="DATABASE_URL",
+    )
+
     def model_post_init(self, __context: object) -> None:
         """Normalize empty optional API keys to None."""
         if self.assemblyai_api_key == "":

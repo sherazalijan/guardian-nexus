@@ -1,0 +1,6 @@
+sqlalchemy[asyncio]>=2.0
+asyncpg
+alembic
+# test-only (Phase 8 tests run on in-memory sqlite):
+aiosqlite
+pytest-asyncio
