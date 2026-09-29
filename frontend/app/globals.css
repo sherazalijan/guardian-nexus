@@ -1,0 +1,151 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --color-background: #F8FAFC; /* slate-50 */
+  --color-foreground: #0F172A; /* slate-900 */
+  --color-card: #FFFFFF;
+  --color-card-foreground: #0F172A;
+  --color-border: #E2E8F0; /* slate-200 */
+  --color-muted: #F1F5F9; /* slate-100 */
+  --color-muted-foreground: #64748B; /* slate-500 */
+  --color-primary: #2563EB; /* blue-600 */
+  --color-primary-foreground: #FFFFFF;
+  --color-destructive: #EF4444;
+  --color-accent: #60A5FA;
+  --color-ring: #3B82F6;
+  --color-severity-low: #10B981;
+  --color-severity-medium: #F59E0B;
+  --color-severity-high: #F97316;
+  --color-severity-critical: #EF4444;
+  --radius: 0.625rem;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  border-color: var(--color-border);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  min-height: 100vh;
+}
+
+/* Focus styles */
+:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748B;
+}
+
+/* Severity utility classes */
+.severity-low {
+  background-color: color-mix(in srgb, var(--color-severity-low) 15%, transparent);
+  color: var(--color-severity-low);
+  border-color: color-mix(in srgb, var(--color-severity-low) 30%, transparent);
+}
+
+.severity-medium {
+  background-color: color-mix(in srgb, var(--color-severity-medium) 15%, transparent);
+  color: var(--color-severity-medium);
+  border-color: color-mix(in srgb, var(--color-severity-medium) 30%, transparent);
+}
+
+.severity-high {
+  background-color: color-mix(in srgb, var(--color-severity-high) 15%, transparent);
+  color: var(--color-severity-high);
+  border-color: color-mix(in srgb, var(--color-severity-high) 30%, transparent);
+}
+
+.severity-critical {
+  background-color: color-mix(in srgb, var(--color-severity-critical) 15%, transparent);
+  color: var(--color-severity-critical);
+  border-color: color-mix(in srgb, var(--color-severity-critical) 30%, transparent);
+}
+
+/* Glass effect */
+.glass {
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--color-card) 60%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.slide-in-right {
+  animation: slide-in-right 0.3s ease-out;
+}
+
+/* Nexus Premium UI Animations */
+@keyframes nx-wave{0%,100%{transform:scaleY(.18)}50%{transform:scaleY(1)}}
+@keyframes nx-sweep{to{transform:rotate(360deg)}}
+@keyframes nx-stripes{to{background-position:40px 0}}
+@keyframes nx-fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+.nx-wave { animation:nx-wave 1.2s ease-in-out infinite; }
+.nx-sweep { animation:nx-sweep 3.2s linear infinite; }
+.nx-stripes { animation:nx-stripes 1.2s linear infinite; }
+.nx-fade { animation:nx-fade .4s ease-out; }
+
+.nx-canvas {
+  background-color: #f8fafc;
+  background-image: radial-gradient(60rem 30rem at 85% -10%, rgb(99 102 241/.10), transparent 60%),
+                    radial-gradient(#e2e8f0 1px, transparent 1px);
+  background-size: auto, 22px 22px;
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .nx-wave, .nx-sweep, .nx-stripes, .nx-fade { animation:none!important; }
+}
